@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+
+# This script automates the archiving of a VM running Xen Orchestra
+# into an AWS S3 bucket.
+
+# AWS authentication, nor bucket creation or lifecycle policies are
+# the purpose of this script, which focuses on the Xen export and 
+# validation of a backup.
+# The AWS part is a basic copy using awscli.
+
+
+######
+# Global vars
+
+xo_config=~/.xen-orchestra/config
+
+
+######
+# Global functions
+
+function usage {
+    cat <<EOF
+SYNOPSIS: $0 <COMMAND> <SELECTOR> [OPTIONS]
+  Wizard to manipulate Xen Orchestra exports to an s3 bucket
+
+COMMANDS:
+  export
+        Creates a manual export of a VM in a compressed and restorable format
+        To be used with --vm-id or --vm-name
+
+  push
+        Pushes the given export to S3.
+        To be used with --vm-id or --vm-name
+        S3 bucket name should be define as an envvar, see below CONFIG FILE section.
+
+  archive
+        Same as above export + push commands.
+
+
+SELECTORS:
+  --vm-id <id>
+        XO's VM ID or snapshot ID.
+        E.g: --vm-id 622870c0-0d21-286b-df2d-05ff2bab6a45
+        If used at the same time as --vm-name, takes precedence
+
+  --vm-name <name_label>
+        XO's VM name as printed in the GUI, which refers to name_label objects
+        E.g: --vm-name foo-bar-01
+        If used in conjunction with --vm-id, then will be ignored
+        TODO: handle multiple results. Currently fails in such case.
+
+
+OPTIONS:
+  -h, --help
+        Prints this help
+
+
+CONFIG FILE:
+  All envvar can be set through file "$xo_config" prefixed by 'export'
+  E.g:
+        $ cat $xo_config
+        export XO_HOST=https://xoa.foo.bar
+        export XO_USER=admin@admin.net
+
+
+  Supported values:
+
+  XO_HOST
+        URL of your XOA
+        E.g: https://xoa.foo.bar
+
+  XO_USER
+        user that can perform exports, import and start VM.
+        E.g: admin@admin.net
+
+  XO_CLI_CONFIG
+        xo-cli config file path
+        Defaults to '~/.config/xo-cli/config.json'
+
+  XO_CLI_EXPIRE
+        Duration after which the XOA token expires.
+        It uses the "date" binary format
+        Defaults to '24hour'
+
+  LOCAL_XVA_DIR
+        Local directory in which XVA will be temporary stored
+        Defaults to '/tmp/xva_dir'
+
+  AWS_BUCKET_XVA_ARCHIVES
+        AWS's S3 bucket name where XVA files are archived
+        E.g: my-xen-archives
+        AWS cli also uses other envvars like AWS_ACCESS_KEY_ID, etc.
+        All those envvars can be defined inside config file,
+        but are not meant to be handled by this script.
+EOF
+    exit 1
+}
+
+# Usage: log "foo bar"
+# will echo "[2021-09-22 14:50:05+02:00]: foo bar"
+function log {
+    echo "[$(date --rfc-3339=seconds)]: $*"
+}
+
+# Usage: die "foo bar"
+# will echo "[2021-09-22 14:50:05+02:00]: foo bar"
+# on the error output (&2) and exit with error code: 2
+function die {
+    log "ERROR: $@" >&2
+    exit 2
+}
+
+
+
+######
+# Checking script command
+
+# This script must be loaded with a command as first parameter
+if [[ $# -lt 1 ]]
+then
+    usage
+else
+    command="$1"
+    shift
+fi
+
+
+
+######
+# Catching arguments passed
+
+while [ "$1" != "" ]
+do
+    case "$1" in
+        --vm-id )                           shift
+                                            vm_id="$1"
+                                            ;;
+        --vm-name )                         shift
+                                            vm_name="$1"
+                                            ;;
+        --help | -h | \? | /? )             usage
+                                            ;;
+        * )                                 die "unknown option \"$1\""
+                                            ;;
+    esac
+    shift
+done
+
+
+
+######
+# Vars checks
+
+# See above Usage for details
+if [[ -r $xo_config ]]
+then
+    source $xo_config
+fi
+
+if [[ -z "$XO_HOST" ]] || [[ -z "$XO_USER" ]]
+then
+    die "You must export envvar XO_HOST and XO_USER, \
+        either in the current shell or through the config file: $xo_config"
+fi
+
+if [[ -z "$XO_CLI_CONFIG" ]]
+then 
+    XO_CLI_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/xo-cli/config.json"
+    # CF: https://github.com/vatesfr/xen-orchestra/blob/master/packages/xo-cli/src/config.js#L17
+fi
+
+if [[ -z "$XO_CLI_EXPIRE" ]]
+then 
+    XO_CLI_EXPIRE=24hour
+    # Defaults to 30 days which is not awesome
+    # https://github.com/vatesfr/xen-orchestra/blob/master/packages/xo-server/config.toml#L45
+fi
+
+if [[ -z "$LOCAL_XVA_DIR" ]]
+then 
+    LOCAL_XVA_DIR=/tmp/xva_dir
+fi
+
+
+
+######
+# Helper functions
+
+# Usage: is_xoa_connected
+# exit 0 if we can send a basic command to XOA
+function is_xoa_connected {
+    \xo-cli system.getServerVersion > /dev/null 2>&1
+}
+
+
+# Usage: renew_xo_cli_auth
+# will check that we can send a command to xoa (and for the next minute)
+# if not, trigger the registering
+function renew_xo_cli_auth {
+    # check configfile mdate to 
+    if [[ -r $XO_CLI_CONFIG ]] && is_xoa_connected
+    then
+        local _config_mdate=$(date -r $XO_CLI_CONFIG)
+        local _config_plus_expire=$(date +"%s" --date "${_config_mdate}+$XO_CLI_EXPIRE")
+        local _current_plus_margin=$(date +"%s" --date '+1min')
+
+        # config mdate + auth expiration Date should be greater than current date + 1h
+        # 1h, so we have time to make some commands
+        if [[ $_config_plus_expire -lt $_current_plus_margin ]]
+        then
+            xo_register
+        fi
+    else
+        # we've never registered to XOA
+        # OR token has expired/been unregistered
+        xo_register
+    fi
+}
+                        
+
+# Usage: xo_register
+# Register the cli to the specified XO host
+# needs envvar: $XO_HOST $XO_USER
+function xo_register {
+    log "registering to $XO_HOST with user $XO_USER"
+    
+    # following register will ask for password
+    \xo-cli --register --expiresIn $XO_CLI_EXPIRE $XO_HOST $XO_USER || die "can't register"
+
+    # Ensure it's really ok
+    is_xoa_connected || \
+        die "Can't run a basic xo-cli command. \
+        Please check your credentials or network."
+}
+
+
+# Usage: xo_cli_wrap vm.export --foo --bar
+# will renew token to access xo-cli
+# and load xo-cli with all parameters in a transparent manner
+function xo_cli_wrap {
+    renew_xo_cli_auth
+    \xo-cli "$@"
+}
+
+
+# Usage: clean_local_xva_dir
+# Removes all tmp files and dir
+function clean_local_xva_dir {
+    log "Cleaning up $LOCAL_XVA_DIR/"
+    rm -Rf $LOCAL_XVA_DIR/*
+}
+
+
+# Usage: export <VM-ID>
+# Will exports the specified VMs in compressed zstd, in a .xva file
+function export_vm {
+    if [[ -z $1 ]]
+    then
+        die "export needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+    fi
+
+    clean_local_xva_dir
+
+    local _vm_export_path="$LOCAL_XVA_DIR/${1}/${1}.xva"
+    log "Exporting VM into \"$_vm_export_path\""
+    mkdir $(dirname $_vm_export_path)
+
+    if xo_cli_wrap vm.export vm=$1 @=$_vm_export_path compress=zstd
+    then
+        log "Export completed at \"$_vm_export_path\""
+    else
+        clean_local_xva_dir
+        die "export failed"
+    fi
+}
+
+
+# Usage: copy_to_s3 <VM-ID>
+# copies the <VM-ID> corresponding XVA into the s3 bucket specified through envvar
+function copy_to_s3 {
+    # ensure bucket var is set
+    if [[ -z "$AWS_BUCKET_XVA_ARCHIVES" ]]
+    then 
+        die "Bucket is undefined. look at the --help and search for AWS_BUCKET_XVA_ARCHIVES"
+    fi
+
+    # ensure there's something to push (directory exists and not empty)
+    if [[ ! -d $LOCAL_XVA_DIR/${1}/ ]] || ! ls -A $LOCAL_XVA_DIR/${1}/ | grep -q "[a-Z]"
+    then
+        die "Nothing to push: local directory doesn't exist or empty: \"$LOCAL_XVA_DIR/${1}/\""
+    fi
+
+    local _vm_name=$(get_vm_name_from_id ${1})
+    local _remote_xva_path="s3://$AWS_BUCKET_XVA_ARCHIVES/$_vm_name"
+    log "Copying export of $_vm_name into \"$_remote_xva_path\""
+
+    aws s3 cp $LOCAL_XVA_DIR/${1}/ $_remote_xva_path/ --recursive || \
+        die "fail to push to s3"
+}
+
+
+# Usage: get_vm_name_from_id <VM-ID>
+# Will print the name_label of the given <VM-ID>
+# prints <VM-ID> in case of error
+function get_vm_name_from_id {
+    xo_cli_wrap --list-objects id=${1} | jq --exit-status -r '.[0].name_label' || \
+        echo "${1}"
+}
+
+
+# Usage: get_vm_id_from_name <name_label>
+# Will print the VM-ID of the given <name_label>
+# exits with error message when nothing has been found
+function get_vm_id_from_name {
+    xo_cli_wrap --list-objects name_label=${1} | jq --exit-status -r '.[0].id' || \
+        die "no VM can be found under name=\"${1}\""
+}
+
+
+
+######
+# Main
+
+# One of the selectors VM name or VM ID should be provided
+if [[ -z $vm_id ]]
+then
+    if [[ ! -z $vm_name ]]
+    then
+        # VM name found but no ID
+        vm_id=$(get_vm_id_from_name $vm_name)
+        # because it's a subshell, embeded die doesn't make the whole script to die
+        _return_value=$?
+        if [[ $_return_value -gt 0 ]]; then exit $_return_value; fi
+    else
+        die "missing VM name or ID to work with, see --help"
+    fi
+fi
+
+log "Script command=\"$command\" and vm_id=\"$vm_id\""
+
+
+case "$command" in
+    export)
+        export_vm $vm_id
+        ;;
+    push)
+        copy_to_s3 $vm_id
+        ;;
+    archive)
+        export_vm $vm_id
+        copy_to_s3 $vm_id
+        ;;
+    * )
+        die "unknown command \"$command\""
+        ;;
+esac
