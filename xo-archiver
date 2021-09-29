@@ -12,7 +12,7 @@
 ######
 # Global vars
 
-xo_config=~/.xen-orchestra/config
+archiver_config="${XDG_CONFIG_HOME:-$HOME/.config}/.xo-archiver/config"
 
 
 ######
@@ -56,9 +56,9 @@ OPTIONS:
 
 
 CONFIG FILE:
-  All envvar can be set through file "$xo_config" prefixed by 'export'
+  All envvar can be set through file "$archiver_config" prefixed by 'export'
   E.g:
-        $ cat $xo_config
+        $ cat $archiver_config
         export XO_HOST=https://xoa.foo.bar
         export XO_USER=admin@admin.net
 
@@ -152,15 +152,15 @@ done
 # Vars checks
 
 # See above Usage for details
-if [[ -r $xo_config ]]
+if [[ -r $archiver_config ]]
 then
-    source $xo_config
+    source $archiver_config
 fi
 
 if [[ -z "$XO_HOST" ]] || [[ -z "$XO_USER" ]]
 then
     die "You must export envvar XO_HOST and XO_USER, \
-        either in the current shell or through the config file: $xo_config"
+        either in the current shell or through the config file: $archiver_config"
 fi
 
 if [[ -z "$XO_CLI_CONFIG" ]]
