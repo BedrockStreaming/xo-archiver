@@ -116,7 +116,7 @@ function die {
 # Checking script command
 
 # This script must be loaded with a command as first parameter
-if [[ $# -lt 1 ]]
+if [[ $# -lt 1 ]] || [[ $1 =~ ^- ]]
 then
     usage
 else
@@ -160,7 +160,7 @@ fi
 if [[ -z "$XO_HOST" ]] || [[ -z "$XO_USER" ]]
 then
     die "You must export envvar XO_HOST and XO_USER, \
-        either in the current shell or through the config file: $archiver_config"
+either in the current shell or through the config file: $archiver_config"
 fi
 
 if [[ -z "$XO_CLI_CONFIG" ]]
@@ -229,8 +229,7 @@ function xo_register {
 
     # Ensure it's really ok
     is_xoa_connected || \
-        die "Can't run a basic xo-cli command. \
-        Please check your credentials or network."
+        die "Can't run a basic xo-cli command. Please check your credentials or network."
 }
 
 
