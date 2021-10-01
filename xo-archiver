@@ -295,6 +295,8 @@ function copy_to_s3 {
 
     aws s3 cp $LOCAL_XVA_DIR/${1}/ $_remote_xva_path/ --recursive || \
         die "fail to push to s3"
+
+    clean_local_xva_dir
 }
 
 
