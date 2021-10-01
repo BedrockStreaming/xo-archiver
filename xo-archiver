@@ -325,6 +325,8 @@ if [[ -z $vm_id ]]
 then
     if [[ ! -z $vm_name ]]
     then
+        # calling renew here, because following subshell traps inputs and outputs
+        renew_xo_cli_auth
         # VM name found but no ID
         vm_id=$(get_vm_id_from_name $vm_name)
         # because it's a subshell, embeded die doesn't make the whole script to die
