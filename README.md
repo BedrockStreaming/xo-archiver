@@ -31,12 +31,12 @@ COMMANDS:
         To be used with --vm-id or --vm-name
         S3 bucket name should be define as an envvar, see below CONFIG FILE section.
 
-  archive
-        Same as above export + push commands.
-
   delete
         Deletes the Virtual Machine and its associated disks in XOA
         To be used with --vm-id or --vm-name
+
+  archive
+        Calls the above commands, in this order: export, push and delete
 
 
 SELECTORS:
