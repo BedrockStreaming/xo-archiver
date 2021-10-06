@@ -304,7 +304,7 @@ function copy_to_s3 {
 # Will print the name_label of the given <VM-ID>
 # prints <VM-ID> in case of error
 function get_vm_name_from_id {
-    xo_cli_wrap --list-objects id=${1} | jq --exit-status -r '.[0].name_label' || \
+    xo_cli_wrap --list-objects type=VM id=${1} | jq --exit-status -r '.[0].name_label' || \
         echo "${1}"
 }
 
@@ -313,7 +313,7 @@ function get_vm_name_from_id {
 # Will print the VM-ID of the given <name_label>
 # exits with error message when nothing has been found
 function get_vm_id_from_name {
-    xo_cli_wrap --list-objects name_label=${1} | jq --exit-status -r '.[0].id' || \
+    xo_cli_wrap --list-objects type=VM name_label=${1} | jq --exit-status -r '.[0].id' || \
         die "no VM can be found under name=\"${1}\""
 }
 
