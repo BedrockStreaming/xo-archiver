@@ -34,6 +34,10 @@ COMMANDS:
   archive
         Same as above export + push commands.
 
+  delete
+        Deletes the Virtual Machine and its associated disks in XOA
+        To be used with --vm-id or --vm-name
+
 
 SELECTORS:
   --vm-id <id>

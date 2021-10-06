@@ -36,6 +36,10 @@ COMMANDS:
   archive
         Same as above export + push commands.
 
+  delete
+        Deletes the Virtual Machine and its associated disks in XOA
+        To be used with --vm-id or --vm-name
+
 
 SELECTORS:
   --vm-id <id>
@@ -274,6 +278,23 @@ function export_vm {
 }
 
 
+# Usage: delete_vm <VM-ID>
+# Deletes VM, disks and backups associated with <VM-ID>
+function delete_vm {
+    if [[ -z $1 ]]
+    then
+        die "delete needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+    fi
+
+    if xo_cli_wrap vm.delete id=${1} deleteDisks=true >/dev/null
+    then
+        log "VM has been deleted"
+    else
+        die "delete failed"
+    fi
+}
+
+
 # Usage: copy_to_s3 <VM-ID>
 # copies the <VM-ID> corresponding XVA into the s3 bucket specified through envvar
 function copy_to_s3 {
@@ -352,6 +373,9 @@ case "$command" in
     archive)
         export_vm $vm_id
         copy_to_s3 $vm_id
+        ;;
+    delete)
+        delete_vm $vm_id
         ;;
     * )
         die "unknown command \"$command\""
