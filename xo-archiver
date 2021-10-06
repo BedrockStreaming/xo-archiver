@@ -373,6 +373,7 @@ case "$command" in
     archive)
         export_vm $vm_id
         copy_to_s3 $vm_id
+        delete_vm $vm_id
         ;;
     delete)
         delete_vm $vm_id
