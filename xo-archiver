@@ -33,8 +33,12 @@ COMMANDS:
         To be used with --vm-id or --vm-name
         S3 bucket name should be define as an envvar, see below CONFIG FILE section.
 
+  delete
+        Deletes the Virtual Machine and its associated disks in XOA
+        To be used with --vm-id or --vm-name
+
   archive
-        Same as above export + push commands.
+        Calls the above commands, in this order: export, push and delete
 
 
 SELECTORS:
@@ -274,6 +278,23 @@ function export_vm {
 }
 
 
+# Usage: delete_vm <VM-ID>
+# Deletes VM, disks and backups associated with <VM-ID>
+function delete_vm {
+    if [[ -z $1 ]]
+    then
+        die "delete needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+    fi
+
+    if xo_cli_wrap vm.delete id=${1} deleteDisks=true >/dev/null
+    then
+        log "VM has been deleted"
+    else
+        die "delete failed"
+    fi
+}
+
+
 # Usage: copy_to_s3 <VM-ID>
 # copies the <VM-ID> corresponding XVA into the s3 bucket specified through envvar
 function copy_to_s3 {
@@ -304,7 +325,7 @@ function copy_to_s3 {
 # Will print the name_label of the given <VM-ID>
 # prints <VM-ID> in case of error
 function get_vm_name_from_id {
-    xo_cli_wrap --list-objects id=${1} | jq --exit-status -r '.[0].name_label' || \
+    xo_cli_wrap --list-objects type=VM id=${1} | jq --exit-status -r '.[0].name_label' || \
         echo "${1}"
 }
 
@@ -313,7 +334,7 @@ function get_vm_name_from_id {
 # Will print the VM-ID of the given <name_label>
 # exits with error message when nothing has been found
 function get_vm_id_from_name {
-    xo_cli_wrap --list-objects name_label=${1} | jq --exit-status -r '.[0].id' || \
+    xo_cli_wrap --list-objects type=VM name_label=${1} | jq --exit-status -r '.[0].id' || \
         die "no VM can be found under name=\"${1}\""
 }
 
@@ -352,6 +373,10 @@ case "$command" in
     archive)
         export_vm $vm_id
         copy_to_s3 $vm_id
+        delete_vm $vm_id
+        ;;
+    delete)
+        delete_vm $vm_id
         ;;
     * )
         die "unknown command \"$command\""
