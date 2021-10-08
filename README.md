@@ -38,6 +38,10 @@ COMMANDS:
   archive
         Calls the above commands, in this order: export, push and delete
 
+  import
+        Imports the specified XVA file (compressed zstd) into the specified SR.
+        To be used with --sr-id and --xva-file
+
 
 SELECTORS:
   --vm-id <id>
@@ -51,6 +55,14 @@ SELECTORS:
         If used in conjunction with --vm-id, then will be ignored
         TODO: handle multiple results. Currently fails in such case.
 
+  --sr-id <id>
+        XO's SR ID where to import the VM into.
+        E.g: --sr-id 2505a86a-0d21-286b-df2d-05ff2bab6a45
+
+  --xva-file <full-path>
+        Fullpath of the VM file, in xva compressed (zstd) format.
+        E.g: --xva-file /mnt/xo-archives/622870c0-0d21-286b-df2d-05ff2bab6a45.xva
+
 
 OPTIONS:
   -h, --help
@@ -58,7 +70,7 @@ OPTIONS:
 
 
 CONFIG FILE:
-  All envvar can be set through file "~./config/.xo-archiver/config" prefixed by 'export'
+  All envvar can be set through file "~/.config/.xo-archiver/config" prefixed by 'export'
   E.g:
         $ cat ~/.config/.xo-archiver/config
         export XO_HOST=https://xoa.foo.bar
