@@ -40,6 +40,10 @@ COMMANDS:
   archive
         Calls the above commands, in this order: export, push and delete
 
+  import
+        Imports the specified XVA file (compressed zstd) into the specified SR.
+        To be used with --sr-id and --xva-file
+
 
 SELECTORS:
   --vm-id <id>
@@ -52,6 +56,14 @@ SELECTORS:
         E.g: --vm-name foo-bar-01
         If used in conjunction with --vm-id, then will be ignored
         TODO: handle multiple results. Currently fails in such case.
+
+  --sr-id <id>
+        XO's SR ID where to import the VM into.
+        E.g: --sr-id 2505a86a-0d21-286b-df2d-05ff2bab6a45
+
+  --xva-file <full-path>
+        Fullpath of the VM file, in xva compressed (zstd) format.
+        E.g: --xva-file /mnt/xo-archives/622870c0-0d21-286b-df2d-05ff2bab6a45.xva
 
 
 OPTIONS:
@@ -141,6 +153,12 @@ do
                                             ;;
         --vm-name )                         shift
                                             vm_name="$1"
+                                            ;;
+        --sr-id )                           shift
+                                            sr_id="$1"
+                                            ;;
+        --xva-file )                        shift
+                                            xva_file="$1"
                                             ;;
         --help | -h | \? | /? )             usage
                                             ;;
@@ -255,7 +273,7 @@ function clean_local_xva_dir {
 
 
 # Usage: export <VM-ID>
-# Will exports the specified VMs in compressed zstd, in a .xva file
+# Will exports the specified VM in compressed zstd, in a .xva file
 function export_vm {
     if [[ -z $1 ]]
     then
@@ -274,6 +292,25 @@ function export_vm {
     else
         clean_local_xva_dir
         die "export failed"
+    fi
+}
+
+
+# Usage: import <SR-ID> <XVA-local-path>
+# Will import the specified XVA file (compressed zstd) into the specified SR
+function import_vm {
+    if [[ -z $2 ]]
+    then
+        die "import needs 2 parameters: <SR-ID> <XVA-local-path>"
+    fi
+
+    log "Importing VM from \"$2\""
+
+    if xo_cli_wrap vm.import sr=$1 @=$2
+    then
+        log "Import completed"
+    else
+        die "Import failed"
     fi
 }
 
@@ -343,7 +380,7 @@ function get_vm_id_from_name {
 ######
 # Main
 
-# One of the selectors VM name or VM ID should be provided
+# One of the selectors must be provided
 if [[ -z $vm_id ]]
 then
     if [[ ! -z $vm_name ]]
@@ -355,12 +392,15 @@ then
         # because it's a subshell, embeded die doesn't make the whole script to die
         _return_value=$?
         if [[ $_return_value -gt 0 ]]; then exit $_return_value; fi
-    else
-        die "missing VM name or ID to work with, see --help"
+    # no vm_id or vm_name
+    elif [[ -z $sr_id ]] || [[ -z $xva_file ]]
+    then
+        # no selector provided
+        die "Wrong or no selector, see --help"
     fi
 fi
 
-log "Script command=\"$command\" and vm_id=\"$vm_id\""
+log "Script command=\"$command\""
 
 
 case "$command" in
@@ -377,6 +417,9 @@ case "$command" in
         ;;
     delete)
         delete_vm $vm_id
+        ;;
+    import)
+        import_vm $sr_id $xva_file
         ;;
     * )
         die "unknown command \"$command\""
