@@ -56,7 +56,7 @@ SELECTORS:
         TODO: handle multiple results. Currently fails in such case.
 
   --sr-id <id>
-        XO's SR ID where to import the VM into.
+        The ID of XO's Storage Repository where to import the VM.
         E.g: --sr-id 2505a86a-0d21-286b-df2d-05ff2bab6a45
 
   --xva-file <full-path>
