@@ -264,39 +264,89 @@ function xo_cli_wrap {
 }
 
 
-# Usage: clean_local_xva_dir
+# Usage: clean_local_tmp_dir
 # Removes all tmp files and dir
-function clean_local_xva_dir {
+function clean_local_tmp_dir {
     log "Cleaning up $LOCAL_XVA_DIR/"
     rm -Rf $LOCAL_XVA_DIR/*
 }
 
 
-# Usage: export <VM-ID>
+# Usage: create_local_tmp_dir
+# Creates the temporary directory
+function create_local_tmp_dir {
+    if [[ ! -d "$LOCAL_XVA_DIR/${1}" ]]
+    then
+        log "Creating $LOCAL_XVA_DIR/${1}"
+        mkdir -p $LOCAL_XVA_DIR/${1}
+    fi
+}
+
+
+# Usage: export_vm <VM-ID>
 # Will exports the specified VM in compressed zstd, in a .xva file
 function export_vm {
     if [[ -z $1 ]]
     then
-        die "export needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+        die "export_vm needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
-    clean_local_xva_dir
+    clean_local_tmp_dir
+    create_local_tmp_dir
 
     local _vm_export_path="$LOCAL_XVA_DIR/${1}/${1}.xva"
     log "Exporting VM into \"$_vm_export_path\""
-    mkdir -p $(dirname $_vm_export_path)
 
     if xo_cli_wrap vm.export vm=$1 @=$_vm_export_path compress=zstd
     then
         log "Export completed at \"$_vm_export_path\""
     else
-        clean_local_xva_dir
+        clean_local_tmp_dir
         die "export failed"
     fi
 }
 
 
-# Usage: import <SR-ID> <XVA-local-path>
+# Usage: export_metadata <VM-ID>
+# Will exports metadata of the specified VM into the backup directory
+function export_metadata {
+    if [[ -z $1 ]]
+    then
+        die "export_metadata needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+    fi
+
+    create_local_tmp_dir
+
+    local _metadata_export_dir="$LOCAL_XVA_DIR/${1}"
+    log "Exporting metadata into \"$_metadata_export_dir\""
+
+    # Exporting Storage Repository ID for futur import
+    ## Export VDI-IDs from VBD to get SR
+    for VDI in $(xo_cli_wrap --list-objects type=VBD VM=${1} | jq -r '.[].VDI|values')
+    do
+        xo_cli_wrap --list-objects type=VDI id=$VDI | \
+            jq -r '.[]."$SR"|values' >> $_metadata_export_dir/VDI-${VDI}-SR-ID.txt
+    done
+
+    if grep -E "[a-Z0-9]" $_metadata_export_dir/VDI-*-SR-ID.txt | head -1 > $_metadata_export_dir/SR-ID.txt
+    then
+        rm -f $_metadata_export_dir/VDI-*-SR-ID.txt
+        log "Storage Repository ID exported to $_metadata_export_dir/SR-ID.txt"
+    else
+        clean_local_tmp_dir
+        die "Unable to export Storage Repository ID for selected VM"
+    fi
+}
+
+
+# Usage: verify_export <VM-ID>
+# Verify that newly exported VM can be restored by importing it temporarily
+function verify_export {
+    # try to import this export to ensure it's recoverable
+}
+
+
+# Usage: import_vm <SR-ID> <XVA-local-path>
 # Will import the specified XVA file (compressed zstd) into the specified SR
 function import_vm {
     if [[ -z $2 ]]
@@ -306,7 +356,7 @@ function import_vm {
 
     log "Importing VM from \"$2\""
 
-    if xo_cli_wrap vm.import sr=$1 @=$2
+    if xo_cli_wrap vm.import sr=$1 @=$2 > $2-imported.json
     then
         log "Import completed"
     else
@@ -354,7 +404,7 @@ function copy_to_s3 {
     aws s3 cp $LOCAL_XVA_DIR/${1}/ $_remote_xva_path/ --recursive || \
         die "fail to push to s3"
 
-    clean_local_xva_dir
+    clean_local_tmp_dir
 }
 
 
