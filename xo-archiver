@@ -25,12 +25,12 @@ SYNOPSIS: $0 <COMMAND> <SELECTOR> [OPTIONS]
 
 COMMANDS:
   export
-        Creates a manual export of a VM in a compressed and restorable format
+        Creates a manual export of a VM in a compressed and restorable format (XVA)
         Also exports some metadata needed to restore the VM to the same location
         To be used with --vm-id or --vm-name
 
   push
-        Pushes the given export to S3.
+        Pushes exported files (XVA+metadata) to S3.
         To be used with --vm-id or --vm-name
         S3 bucket name should be define as an envvar, see below CONFIG FILE section.
 
@@ -43,6 +43,13 @@ COMMANDS:
 
   import
         Imports the specified XVA file (compressed zstd) into the specified SR.
+        To be used with --sr-id and --xva-file
+
+  temporarily-restores-xva
+        Restores the given XVA file into the specified Storage Repository,
+        and deletes this newly created VM right away.
+        This command ensures that the file is restorable by actually restoring it,
+        and deleting the VM thus created. VM will stay in Halted state.
         To be used with --sr-id and --xva-file
 
 
@@ -103,8 +110,8 @@ CONFIG FILE:
         Local directory in which files will be temporary stored
         Defaults to '/tmp/xo-archiver'
 
-  AWS_BUCKET_XVA_ARCHIVES
-        AWS's S3 bucket name where XVA files are archived
+  AWS_BUCKET_XO_ARCHIVES
+        AWS's S3 bucket name where files are archived
         E.g: my-xen-archives
         AWS cli also uses other envvars like AWS_ACCESS_KEY_ID, etc.
         All those envvars can be defined inside config file,
@@ -321,6 +328,9 @@ function export_metadata {
     local _metadata_export_dir="$LOCAL_TMP_DIR/${1}"
     log "Exporting metadata into \"$_metadata_export_dir\""
 
+    # Exporting VM metadata
+    xo_cli_wrap --list-objects type=VM id=$1 > $_metadata_export_dir/VM.json
+
     # Exporting Storage Repository ID for futur import
     ## Export VDI-IDs from VBD to get SR
     for VDI in $(xo_cli_wrap --list-objects type=VBD VM=${1} | jq -r '.[].VDI|values')
@@ -352,7 +362,14 @@ function import_vm {
 
     if xo_cli_wrap vm.import sr=$1 @=$2 > $2-imported.json
     then
-        log "Import completed"
+        # This new VM-ID is necessary to run temporarily_restores_xva function
+        # but it also improves the output log
+        export imported_vm_id=$(cat $2-imported.json | jq --exit-status -r '.result')
+        if ! echo $imported_vm_id | grep -q "[a-Z0-9]"
+        then
+            log "Can't get a valid VM-ID from import. You must check manually in XOA"
+        fi
+        log "Import completed into [$imported_vm_id]"
     else
         die "Import failed"
     fi
@@ -377,12 +394,12 @@ function delete_vm {
 
 
 # Usage: copy_to_s3 <VM-ID>
-# copies the <VM-ID> corresponding XVA into the s3 bucket specified through envvar
+# copies the <VM-ID> corresponding files into the s3 bucket specified through envvar
 function copy_to_s3 {
     # ensure bucket var is set
-    if [[ -z "$AWS_BUCKET_XVA_ARCHIVES" ]]
+    if [[ -z "$AWS_BUCKET_XO_ARCHIVES" ]]
     then 
-        die "Bucket is undefined. look at the --help and search for AWS_BUCKET_XVA_ARCHIVES"
+        die "Bucket is undefined. look at the --help and search for AWS_BUCKET_XO_ARCHIVES"
     fi
 
     # ensure there's something to push (directory exists and not empty)
@@ -392,13 +409,33 @@ function copy_to_s3 {
     fi
 
     local _vm_name=$(get_vm_name_from_id ${1})
-    local _remote_xva_path="s3://$AWS_BUCKET_XVA_ARCHIVES/$_vm_name"
+    local _remote_xva_path="s3://$AWS_BUCKET_XO_ARCHIVES/$_vm_name"
     log "Copying export of $_vm_name into \"$_remote_xva_path\""
 
     aws s3 cp $LOCAL_TMP_DIR/${1}/ $_remote_xva_path/ --recursive || \
         die "Fail to push to s3"
 
     clean_local_tmp_dir
+}
+
+
+# Usage: temporarily_restores_xva <SR-ID> <XVA-local-path>
+# Will restore the XVA in the specified SR and delete this newly created VM right away
+function temporarily_restores_xva {
+    # no verification of the parameters as they're already done in import_vm function
+    if import_vm $@
+    then
+        # var imported_vm_id is exported from import_vm function
+        if delete_vm $imported_vm_id
+        then
+            say "VM restoration from XVA file [$2] is successful and the temporary VM [$imported_vm_id] has been deleted"
+        else
+            say "VM could be restored from [$2], but cannot be removed, you must delete it manually: \"[$imported_vm_id]\""
+            die "If the problem isn't related to the XVA file, you can reload this script with [push] command"
+        fi
+    else
+        die "Import failed, XVA file may be corrupted [$2]"
+    fi
 }
 
 
@@ -441,6 +478,8 @@ then
     then
         # no selector provided
         die "Wrong or no selector, see --help"
+    else
+        renew_xo_cli_auth
     fi
 fi
 
@@ -466,6 +505,9 @@ case "$command" in
         ;;
     import)
         import_vm $sr_id $xva_file
+        ;;
+    temporarily-restores-xva)
+        temporarily_restores_xva $sr_id $xva_file
         ;;
     * )
         die "unknown command \"$command\""
