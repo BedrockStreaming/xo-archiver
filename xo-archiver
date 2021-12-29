@@ -49,7 +49,7 @@ COMMANDS:
         Restores the given XVA file into the specified Storage Repository,
         and deletes this newly created VM right away.
         This command ensures that the file is restorable by actually restoring it,
-        and deleting the VM thus created. VM will stay in Halted state.
+        and deleting the VM thus created. VM will stay in Halted state all along.
         To be used with --sr-id and --xva-file
 
 
@@ -272,21 +272,13 @@ function xo_cli_wrap {
 }
 
 
-# Usage: clean_local_tmp_dir
-# Removes all tmp files and dir
-function clean_local_tmp_dir {
-    log "Cleaning up $LOCAL_TMP_DIR/"
-    rm -Rf $LOCAL_TMP_DIR/*
-}
-
-
-# Usage: create_local_tmp_dir
+# Usage: create_working_dir
 # Creates the temporary directory
-function create_local_tmp_dir {
-    if [[ ! -d "$LOCAL_TMP_DIR/${1}" ]]
+function create_working_dir {
+    if [[ ! -d "$WORKING_DIR" ]]
     then
-        log "Creating $LOCAL_TMP_DIR/${1}"
-        mkdir -p $LOCAL_TMP_DIR/${1}
+        log "Creating $WORKING_DIR"
+        mkdir -p $WORKING_DIR
     fi
 }
 
@@ -299,17 +291,17 @@ function export_vm {
         die "export_vm needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
-    clean_local_tmp_dir
-    create_local_tmp_dir
+    create_working_dir
 
-    local _vm_export_path="$LOCAL_TMP_DIR/${1}/${1}.xva"
+    local _vm_export_path="$WORKING_DIR/${1}.xva"
     log "Exporting VM into \"$_vm_export_path\""
+    rm $_vm_export_path 2>/dev/null
 
     if xo_cli_wrap vm.export vm=$1 @=$_vm_export_path compress=zstd
     then
         log "Export completed at \"$_vm_export_path\""
     else
-        clean_local_tmp_dir
+        rm -f $_vm_export_path
         die "Export failed"
     fi
 }
@@ -323,29 +315,27 @@ function export_metadata {
         die "export_metadata needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
-    create_local_tmp_dir
-
-    local _metadata_export_dir="$LOCAL_TMP_DIR/${1}"
-    log "Exporting metadata into \"$_metadata_export_dir\""
+    create_working_dir
+    log "Exporting metadata into \"$WORKING_DIR\""
 
     # Exporting VM metadata
-    xo_cli_wrap --list-objects type=VM id=$1 > $_metadata_export_dir/VM.json
+    xo_cli_wrap --list-objects type=VM id=$1 > $WORKING_DIR/VM.json || rm -f $WORKING_DIR/VM.json
 
     # Exporting Storage Repository ID for futur import
     ## Export VDI-IDs from VBD to get SR
     for VDI in $(xo_cli_wrap --list-objects type=VBD VM=${1} | jq -r '.[].VDI|values')
     do
         xo_cli_wrap --list-objects type=VDI id=$VDI | \
-            jq -r '.[]."$SR"|values' >> $_metadata_export_dir/VDI-${VDI}-SR-ID.txt
+            jq -r '.[]."$SR"|values' >> $WORKING_DIR/VDI-${VDI}-SR-ID.txt
     done
 
-    if grep -E "[a-Z0-9]" $_metadata_export_dir/VDI-*-SR-ID.txt | head -1 > $_metadata_export_dir/SR-ID.txt
+    if grep -E "[a-Z0-9]" $WORKING_DIR/VDI-*-SR-ID.txt | head -1 > $WORKING_DIR/SR-ID.txt
     then
-        rm -f $_metadata_export_dir/VDI-*-SR-ID.txt
-        log "Storage Repository ID exported to $_metadata_export_dir/SR-ID.txt"
+        rm -f $WORKING_DIR/VDI-*-SR-ID.txt
+        log "Storage Repository ID exported to $WORKING_DIR/SR-ID.txt"
     else
-        clean_local_tmp_dir
-        die "Unable to export Storage Repository ID for selected VM"
+        rm -f $WORKING_DIR/{SR-ID.txt,VDI-*-SR-ID.txt}
+        die "Unable to export Storage Repository ID for VM [$1]"
     fi
 }
 
@@ -403,19 +393,22 @@ function copy_to_s3 {
     fi
 
     # ensure there's something to push (directory exists and not empty)
-    if [[ ! -d $LOCAL_TMP_DIR/${1}/ ]] || ! ls -A $LOCAL_TMP_DIR/${1}/ | grep -q "[a-Z]"
+    if [[ ! -d $WORKING_DIR/ ]] || ! ls -A $WORKING_DIR/ | grep -q "[a-Z0-9]"
     then
-        die "Nothing to push: local directory doesn't exist or empty: \"$LOCAL_TMP_DIR/${1}/\""
+        die "Nothing to push: local directory doesn't exist or empty: \"$WORKING_DIR/\""
     fi
 
     local _vm_name=$(get_vm_name_from_id ${1})
     local _remote_xva_path="s3://$AWS_BUCKET_XO_ARCHIVES/$_vm_name"
     log "Copying export of $_vm_name into \"$_remote_xva_path\""
 
-    aws s3 cp $LOCAL_TMP_DIR/${1}/ $_remote_xva_path/ --recursive || \
+    if aws s3 cp $WORKING_DIR/ $_remote_xva_path/ --recursive
+    then
+        log "Cleaning up $WORKING_DIR/"
+        rm -Rf $WORKING_DIR/
+    else
         die "Fail to push to s3"
-
-    clean_local_tmp_dir
+    fi
 }
 
 
@@ -482,6 +475,9 @@ then
         renew_xo_cli_auth
     fi
 fi
+
+
+WORKING_DIR="$LOCAL_TMP_DIR/$vm_id"
 
 log "Script command=\"$command\""
 
