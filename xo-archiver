@@ -26,6 +26,7 @@ SYNOPSIS: $0 <COMMAND> <SELECTOR> [OPTIONS]
 COMMANDS:
   export
         Creates a manual export of a VM in a compressed and restorable format
+        Also exports some metadata needed to restore the VM to the same location
         To be used with --vm-id or --vm-name
 
   push
@@ -98,9 +99,9 @@ CONFIG FILE:
         It uses the "date" binary format
         Defaults to '24hour'
 
-  LOCAL_XVA_DIR
-        Local directory in which XVA will be temporary stored
-        Defaults to '/tmp/xva_dir'
+  LOCAL_TMP_DIR
+        Local directory in which files will be temporary stored
+        Defaults to '/tmp/xo-archiver'
 
   AWS_BUCKET_XVA_ARCHIVES
         AWS's S3 bucket name where XVA files are archived
@@ -198,9 +199,9 @@ then
     # https://github.com/vatesfr/xen-orchestra/blob/master/packages/xo-server/config.toml#L45
 fi
 
-if [[ -z "$LOCAL_XVA_DIR" ]]
+if [[ -z "$LOCAL_TMP_DIR" ]]
 then 
-    LOCAL_XVA_DIR=/tmp/xva_dir
+    LOCAL_TMP_DIR=/tmp/xo-archiver
 fi
 
 
@@ -244,7 +245,7 @@ function renew_xo_cli_auth {
 # Register the cli to the specified XO host
 # needs envvar: $XO_HOST $XO_USER
 function xo_register {
-    log "registering to $XO_HOST with user $XO_USER"
+    log "Registering to $XO_HOST with user $XO_USER"
     
     # following register will ask for password
     \xo-cli --register --expiresIn $XO_CLI_EXPIRE $XO_HOST $XO_USER || die "can't register"
@@ -267,18 +268,18 @@ function xo_cli_wrap {
 # Usage: clean_local_tmp_dir
 # Removes all tmp files and dir
 function clean_local_tmp_dir {
-    log "Cleaning up $LOCAL_XVA_DIR/"
-    rm -Rf $LOCAL_XVA_DIR/*
+    log "Cleaning up $LOCAL_TMP_DIR/"
+    rm -Rf $LOCAL_TMP_DIR/*
 }
 
 
 # Usage: create_local_tmp_dir
 # Creates the temporary directory
 function create_local_tmp_dir {
-    if [[ ! -d "$LOCAL_XVA_DIR/${1}" ]]
+    if [[ ! -d "$LOCAL_TMP_DIR/${1}" ]]
     then
-        log "Creating $LOCAL_XVA_DIR/${1}"
-        mkdir -p $LOCAL_XVA_DIR/${1}
+        log "Creating $LOCAL_TMP_DIR/${1}"
+        mkdir -p $LOCAL_TMP_DIR/${1}
     fi
 }
 
@@ -294,7 +295,7 @@ function export_vm {
     clean_local_tmp_dir
     create_local_tmp_dir
 
-    local _vm_export_path="$LOCAL_XVA_DIR/${1}/${1}.xva"
+    local _vm_export_path="$LOCAL_TMP_DIR/${1}/${1}.xva"
     log "Exporting VM into \"$_vm_export_path\""
 
     if xo_cli_wrap vm.export vm=$1 @=$_vm_export_path compress=zstd
@@ -302,7 +303,7 @@ function export_vm {
         log "Export completed at \"$_vm_export_path\""
     else
         clean_local_tmp_dir
-        die "export failed"
+        die "Export failed"
     fi
 }
 
@@ -317,7 +318,7 @@ function export_metadata {
 
     create_local_tmp_dir
 
-    local _metadata_export_dir="$LOCAL_XVA_DIR/${1}"
+    local _metadata_export_dir="$LOCAL_TMP_DIR/${1}"
     log "Exporting metadata into \"$_metadata_export_dir\""
 
     # Exporting Storage Repository ID for futur import
@@ -339,19 +340,12 @@ function export_metadata {
 }
 
 
-# Usage: verify_export <VM-ID>
-# Verify that newly exported VM can be restored by importing it temporarily
-function verify_export {
-    # try to import this export to ensure it's recoverable
-}
-
-
 # Usage: import_vm <SR-ID> <XVA-local-path>
 # Will import the specified XVA file (compressed zstd) into the specified SR
 function import_vm {
     if [[ -z $2 ]]
     then
-        die "import needs 2 parameters: <SR-ID> <XVA-local-path>"
+        die "import_vm needs 2 parameters: <SR-ID> <XVA-local-path>"
     fi
 
     log "Importing VM from \"$2\""
@@ -370,14 +364,14 @@ function import_vm {
 function delete_vm {
     if [[ -z $1 ]]
     then
-        die "delete needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+        die "delete_vm needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
     if xo_cli_wrap vm.delete id=${1} deleteDisks=true >/dev/null
     then
         log "VM has been deleted"
     else
-        die "delete failed"
+        die "Delete failed"
     fi
 }
 
@@ -392,17 +386,17 @@ function copy_to_s3 {
     fi
 
     # ensure there's something to push (directory exists and not empty)
-    if [[ ! -d $LOCAL_XVA_DIR/${1}/ ]] || ! ls -A $LOCAL_XVA_DIR/${1}/ | grep -q "[a-Z]"
+    if [[ ! -d $LOCAL_TMP_DIR/${1}/ ]] || ! ls -A $LOCAL_TMP_DIR/${1}/ | grep -q "[a-Z]"
     then
-        die "Nothing to push: local directory doesn't exist or empty: \"$LOCAL_XVA_DIR/${1}/\""
+        die "Nothing to push: local directory doesn't exist or empty: \"$LOCAL_TMP_DIR/${1}/\""
     fi
 
     local _vm_name=$(get_vm_name_from_id ${1})
     local _remote_xva_path="s3://$AWS_BUCKET_XVA_ARCHIVES/$_vm_name"
     log "Copying export of $_vm_name into \"$_remote_xva_path\""
 
-    aws s3 cp $LOCAL_XVA_DIR/${1}/ $_remote_xva_path/ --recursive || \
-        die "fail to push to s3"
+    aws s3 cp $LOCAL_TMP_DIR/${1}/ $_remote_xva_path/ --recursive || \
+        die "Fail to push to s3"
 
     clean_local_tmp_dir
 }
@@ -422,7 +416,7 @@ function get_vm_name_from_id {
 # exits with error message when nothing has been found
 function get_vm_id_from_name {
     xo_cli_wrap --list-objects type=VM name_label=${1} | jq --exit-status -r '.[0].id' || \
-        die "no VM can be found under name=\"${1}\""
+        die "No VM can be found under name=\"${1}\""
 }
 
 
@@ -456,12 +450,14 @@ log "Script command=\"$command\""
 case "$command" in
     export)
         export_vm $vm_id
+        export_metadata $vm_id
         ;;
     push)
         copy_to_s3 $vm_id
         ;;
     archive)
         export_vm $vm_id
+        export_metadata $vm_id
         copy_to_s3 $vm_id
         delete_vm $vm_id
         ;;
