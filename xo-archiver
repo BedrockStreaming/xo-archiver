@@ -39,7 +39,8 @@ COMMANDS:
         To be used with --vm-id or --vm-name
 
   archive
-        Calls the above commands, in this order: export, push and delete
+        Calls those commands, in this order: export, temporarily-restores-xva, push and delete
+        To be used with --vm-id or --vm-name
 
   import
         Imports the specified XVA file (compressed zstd) into the specified SR.
@@ -302,6 +303,8 @@ function export_vm {
     if xo_cli_wrap vm.export vm=$1 @=$_vm_export_path compress=zstd
     then
         log "Export completed at \"$_vm_export_path\""
+        # this exported envvar is used in Main to call temporarily_restores_xva function
+        export EXPORTED_VM_XVA_FILE=$_vm_export_path
     else
         rm -f $_vm_export_path
         die "Export failed for VM \"${1}\""
@@ -342,12 +345,17 @@ function export_metadata {
     done
 
     # get first SR from VDIs and check if result looks good
-    if grep --no-filename -E "[a-Z0-9]" $WORKING_DIR/VDI-*-SR-ID.txt | head -1 > $WORKING_DIR/SR-ID.txt
+    grep --no-filename -E "[a-Z0-9]" $WORKING_DIR/VDI-*-SR-ID.txt | head -1 > $WORKING_DIR/SR-ID.txt
+    # this exported envvar is used in Main to call temporarily_restores_xva function
+    export EXPORTED_VM_SR_ID="$(cat $WORKING_DIR/SR-ID.txt)"
+
+    if echo $EXPORTED_VM_SR_ID | grep -q "[a-Z0-9]"
     then
         rm -f $WORKING_DIR/VDI-*-SR-ID.txt
-        log "Storage Repository ID \"$(cat $WORKING_DIR/SR-ID.txt)\" exported to $WORKING_DIR/SR-ID.txt"
+        log "Storage Repository ID \"$EXPORTED_VM_SR_ID\" exported to $WORKING_DIR/SR-ID.txt"
     else
         rm -f $WORKING_DIR/{SR-ID.txt,VDI-*-SR-ID.txt}
+        unset $EXPORTED_VM_SR_ID
         die "Unable to export Storage Repository ID for VM \"$1\""
     fi
 }
@@ -373,6 +381,7 @@ function import_vm {
         export IMPORTED_VM_ID=$(cat $2-imported.json | jq --exit-status -r '.result')
         if ! echo $IMPORTED_VM_ID | grep -q "[a-Z0-9]"
         then
+            unset $IMPORTED_VM_ID
             log "Can't get a valid VM-ID from import. You must check manually in XOA"
         fi
         log "Import completed into \"$IMPORTED_VM_ID\""
@@ -517,6 +526,7 @@ case "$command" in
     archive)
         export_vm $vm_id
         export_metadata $vm_id
+        temporarily_restores_xva $EXPORTED_VM_SR_ID $EXPORTED_VM_XVA_FILE
         copy_to_s3 $vm_id
         delete_vm $vm_id
         ;;
@@ -530,6 +540,6 @@ case "$command" in
         temporarily_restores_xva $sr_id $xva_file
         ;;
     * )
-        die "unknown command \"$command\""
+        die "Unknown command \"$command\""
         ;;
 esac
