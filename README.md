@@ -23,11 +23,12 @@ SYNOPSIS: xo-archiver <COMMAND> <SELECTOR> [OPTIONS]
 
 COMMANDS:
   export
-        Creates a manual export of a VM in a compressed and restorable format
+        Creates a manual export of a VM in a compressed and restorable format (XVA)
+        Also exports some metadata needed to restore the VM to the same location
         To be used with --vm-id or --vm-name
 
   push
-        Pushes the given export to S3.
+        Pushes exported files (XVA+metadata) to S3.
         To be used with --vm-id or --vm-name
         S3 bucket name should be define as an envvar, see below CONFIG FILE section.
 
@@ -36,10 +37,18 @@ COMMANDS:
         To be used with --vm-id or --vm-name
 
   archive
-        Calls the above commands, in this order: export, push and delete
+        Calls those commands, in this order: export, temporarily-restores-xva, push and delete
+        To be used with --vm-id or --vm-name
 
   import
         Imports the specified XVA file (compressed zstd) into the specified SR.
+        To be used with --sr-id and --xva-file
+
+  temporarily-restores-xva
+        Restores the given XVA file into the specified Storage Repository,
+        and deletes this newly created VM right away.
+        This command ensures that the file is restorable by actually restoring it,
+        and deleting the VM thus created. VM will stay in Halted state all along.
         To be used with --sr-id and --xva-file
 
 
@@ -96,12 +105,12 @@ CONFIG FILE:
         It uses the "date" binary format
         Defaults to '24hour'
 
-  LOCAL_XVA_DIR
-        Local directory in which XVA will be temporary stored
-        Defaults to '/tmp/xva_dir'
+  LOCAL_TMP_DIR
+        Local directory in which files will be temporary stored
+        Defaults to '/tmp/xo-archiver'
 
-  AWS_BUCKET_XVA_ARCHIVES
-        AWS's S3 bucket name where XVA files are archived
+  AWS_BUCKET_XO_ARCHIVES
+        AWS's S3 bucket name where files are archived
         E.g: my-xen-archives
         AWS cli also uses other envvars like AWS_ACCESS_KEY_ID, etc.
         All those envvars can be defined inside config file,
