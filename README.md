@@ -31,6 +31,11 @@ COMMANDS:
         Pushes exported files (XVA+metadata) to S3.
         To be used with --vm-id or --vm-name
         S3 bucket name should be define as an envvar, see below CONFIG FILE section.
+        Files will be pushed to S3 into "s3://bucket_name/\$VM-NAME/", like:
+            foo-bar-01
+            ├── 622870c0-0d21-286b-df2d-05ff2bab6a45.xva
+            ├── SR-ID.txt
+            └── VM.json
 
   delete
         Deletes the Virtual Machine and its associated disks in XOA
