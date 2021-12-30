@@ -319,13 +319,17 @@ function export_metadata {
     log "Exporting metadata into \"$WORKING_DIR\""
 
     # Exporting VM metadata
-    xo_cli_wrap --list-objects type=VM id=$1 > $WORKING_DIR/VM.json || rm -f $WORKING_DIR/VM.json
+    # using xo-cli and not wrapper here, because we redirect stdout (incompatible with ask-for-pass)
+    # still, we try to renew auth to avoid expired credential error
+    renew_xo_cli_auth
+    xo-cli --list-objects type=VM id=$1 > $WORKING_DIR/VM.json || rm -f $WORKING_DIR/VM.json
 
     # Exporting Storage Repository ID for futur import
     ## Export VDI-IDs from VBD to get SR
     for VDI in $(xo-cli --list-objects type=VBD VM=${1} | jq -r '.[].VDI|values')
     do
-        xo_cli_wrap --list-objects type=VDI id=$VDI | \
+        # using xo-cli and not wrapper here, because we redirect stdout (incompatible with ask-for-pass)
+        xo-cli --list-objects type=VDI id=$VDI | \
             jq -r '.[]."$SR"|values' >> $WORKING_DIR/VDI-${VDI}-SR-ID.txt
     done
 
@@ -350,7 +354,10 @@ function import_vm {
 
     log "Importing VM from \"$2\""
 
-    if xo_cli_wrap vm.import sr=$1 @=$2 > $2-imported.json
+    # using xo-cli and not wrapper here, because we redirect stdout (incompatible with ask-for-pass)
+    # still, we try to renew auth to avoid expired credential error
+    renew_xo_cli_auth
+    if xo-cli vm.import sr=$1 @=$2 > $2-imported.json
     then
         # This new VM-ID is necessary to run temporarily_restores_xva function
         # but it also improves the output log
@@ -374,7 +381,10 @@ function delete_vm {
         die "delete_vm needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
-    if xo_cli_wrap vm.delete id=${1} deleteDisks=true >/dev/null
+    # using xo-cli and not wrapper here, because we redirect stdout (incompatible with ask-for-pass)
+    # still, we try to renew auth to avoid expired credential error
+    renew_xo_cli_auth
+    if xo-cli vm.delete id=${1} deleteDisks=true >/dev/null
     then
         log "VM has been deleted"
     else
@@ -455,13 +465,15 @@ function get_vm_id_from_name {
 ######
 # Main
 
+# calling renew here, because some functions need to redirect stdout (E.g, into a .json)
+# and that messes up with xo-cli asking for credentials (ask-for-pass isn't display, script gets stuck)
+renew_xo_cli_auth
+
 # One of the selectors must be provided
 if [[ -z $vm_id ]]
 then
     if [[ ! -z $vm_name ]]
     then
-        # calling renew here, because following subshell traps inputs and outputs
-        renew_xo_cli_auth
         # VM name found but no ID
         vm_id=$(get_vm_id_from_name $vm_name)
         # because it's a subshell, embeded die doesn't make the whole script to die
@@ -472,8 +484,6 @@ then
     then
         # no selector provided
         die "Wrong or no selector, see --help"
-    else
-        renew_xo_cli_auth
     fi
 fi
 
