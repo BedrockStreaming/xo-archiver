@@ -304,7 +304,7 @@ function export_vm {
         log "Export completed at \"$_vm_export_path\""
     else
         rm -f $_vm_export_path
-        die "Export failed"
+        die "Export failed for VM \"${1}\""
     fi
 }
 
@@ -318,13 +318,19 @@ function export_metadata {
     fi
 
     create_working_dir
-    log "Exporting metadata into \"$WORKING_DIR\""
+    log "Exporting metadata into \"$WORKING_DIR/\""
 
     # Exporting VM metadata
     # using xo-cli and not wrapper here, because we redirect stdout (incompatible with ask-for-pass)
     # still, we try to renew auth to avoid expired credential error
     renew_xo_cli_auth
-    xo-cli --list-objects type=VM id=$1 > $WORKING_DIR/VM.json || rm -f $WORKING_DIR/VM.json
+    if xo-cli --list-objects type=VM id=$1 > $WORKING_DIR/VM.json
+    then
+        log "VM metadata successfully exported to $WORKING_DIR/VM.json"
+    else
+        rm -f $WORKING_DIR/VM.json
+        die "Unable to export VM metadata for VM \"$1\""
+    fi
 
     # Exporting Storage Repository ID for futur import
     ## Export VDI-IDs from VBD to get SR
@@ -335,13 +341,14 @@ function export_metadata {
             jq -r '.[]."$SR"|values' >> $WORKING_DIR/VDI-${VDI}-SR-ID.txt
     done
 
-    if grep -E "[a-Z0-9]" $WORKING_DIR/VDI-*-SR-ID.txt | head -1 > $WORKING_DIR/SR-ID.txt
+    # get first SR from VDIs and check if result looks good
+    if grep --no-filename -E "[a-Z0-9]" $WORKING_DIR/VDI-*-SR-ID.txt | head -1 > $WORKING_DIR/SR-ID.txt
     then
         rm -f $WORKING_DIR/VDI-*-SR-ID.txt
-        log "Storage Repository ID exported to $WORKING_DIR/SR-ID.txt"
+        log "Storage Repository ID \"$(cat $WORKING_DIR/SR-ID.txt)\" exported to $WORKING_DIR/SR-ID.txt"
     else
         rm -f $WORKING_DIR/{SR-ID.txt,VDI-*-SR-ID.txt}
-        die "Unable to export Storage Repository ID for VM [$1]"
+        die "Unable to export Storage Repository ID for VM \"$1\""
     fi
 }
 
@@ -368,8 +375,10 @@ function import_vm {
         then
             log "Can't get a valid VM-ID from import. You must check manually in XOA"
         fi
-        log "Import completed into [$IMPORTED_VM_ID]"
+        log "Import completed into \"$IMPORTED_VM_ID\""
+        rm -f $2-imported.json
     else
+        rm -f $2-imported.json
         die "Import failed"
     fi
 }
@@ -383,14 +392,16 @@ function delete_vm {
         die "delete_vm needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
+    log "Deleting VM \"$1\""
+
     # using xo-cli and not wrapper here, because we redirect stdout (incompatible with ask-for-pass)
     # still, we try to renew auth to avoid expired credential error
     renew_xo_cli_auth
     if xo-cli vm.delete id=${1} deleteDisks=true >/dev/null
     then
-        log "VM has been deleted"
+        log "Successfully deleted VM \"$1\""
     else
-        die "Delete failed"
+        die "Delete failed for VM \"$1\""
     fi
 }
 
@@ -412,11 +423,11 @@ function copy_to_s3 {
 
     local _vm_name=$(get_vm_name_from_id ${1})
     local _remote_xva_path="s3://$AWS_BUCKET_XO_ARCHIVES/$_vm_name"
-    log "Copying export of $_vm_name into \"$_remote_xva_path\""
+    log "Copying export of \"$_vm_name\" into \"$_remote_xva_path\""
 
     if aws s3 cp $WORKING_DIR/ $_remote_xva_path/ --recursive
     then
-        log "Successfully copied exports of [$_vm_name] on bucket $AWS_BUCKET_XO_ARCHIVES"
+        log "Successfully copied exports of \"$_vm_name\" on bucket \"$AWS_BUCKET_XO_ARCHIVES\""
         log "Cleaning up $WORKING_DIR/"
         rm -Rf $WORKING_DIR/
     else
@@ -434,13 +445,13 @@ function temporarily_restores_xva {
         # var IMPORTED_VM_ID is exported from import_vm function
         if delete_vm $IMPORTED_VM_ID
         then
-            say "VM restoration from XVA file [$2] is successful and the temporary VM [$IMPORTED_VM_ID] has been deleted"
+            log "Successfully restored VM from XVA file \"$2\" and the temporary VM \"$IMPORTED_VM_ID\" has been deleted"
         else
-            say "VM could be restored from [$2], but cannot be removed, you must delete it manually: \"[$IMPORTED_VM_ID]\""
+            log "VM could be restored from \"$2\", but cannot be removed, you must delete it manually: \"$IMPORTED_VM_ID\""
             die "If the problem isn't related to the XVA file, you can reload this script with [push] command"
         fi
     else
-        die "Import failed, XVA file may be corrupted [$2]"
+        die "Import failed, XVA file may be corrupted: \"$2\""
     fi
 }
 
