@@ -266,6 +266,8 @@ function xo_register {
 # Usage: xo_cli_wrap vm.export --foo --bar
 # will renew token to access xo-cli
 # and load xo-cli with all parameters in a transparent manner
+# /!\ You shouldn't use this wrapper if you redirect stdout, that messes up with
+# xo-cli asking for credentials (ask-for-pass isn't displayed, script gets stucked) /!\
 function xo_cli_wrap {
     renew_xo_cli_auth
     \xo-cli "$@"
@@ -466,7 +468,7 @@ function get_vm_id_from_name {
 # Main
 
 # calling renew here, because some functions need to redirect stdout (E.g, into a .json)
-# and that messes up with xo-cli asking for credentials (ask-for-pass isn't display, script gets stuck)
+# and that messes up with xo-cli asking for credentials (ask-for-pass isn't displayed, script gets stucked)
 renew_xo_cli_auth
 
 # One of the selectors must be provided
