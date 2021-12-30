@@ -323,7 +323,7 @@ function export_metadata {
 
     # Exporting Storage Repository ID for futur import
     ## Export VDI-IDs from VBD to get SR
-    for VDI in $(xo_cli_wrap --list-objects type=VBD VM=${1} | jq -r '.[].VDI|values')
+    for VDI in $(xo-cli --list-objects type=VBD VM=${1} | jq -r '.[].VDI|values')
     do
         xo_cli_wrap --list-objects type=VDI id=$VDI | \
             jq -r '.[]."$SR"|values' >> $WORKING_DIR/VDI-${VDI}-SR-ID.txt
@@ -354,12 +354,12 @@ function import_vm {
     then
         # This new VM-ID is necessary to run temporarily_restores_xva function
         # but it also improves the output log
-        export imported_vm_id=$(cat $2-imported.json | jq --exit-status -r '.result')
-        if ! echo $imported_vm_id | grep -q "[a-Z0-9]"
+        export IMPORTED_VM_ID=$(cat $2-imported.json | jq --exit-status -r '.result')
+        if ! echo $IMPORTED_VM_ID | grep -q "[a-Z0-9]"
         then
             log "Can't get a valid VM-ID from import. You must check manually in XOA"
         fi
-        log "Import completed into [$imported_vm_id]"
+        log "Import completed into [$IMPORTED_VM_ID]"
     else
         die "Import failed"
     fi
@@ -404,6 +404,7 @@ function copy_to_s3 {
 
     if aws s3 cp $WORKING_DIR/ $_remote_xva_path/ --recursive
     then
+        log "Successfully copied exports of [$_vm_name] on bucket $AWS_BUCKET_XO_ARCHIVES"
         log "Cleaning up $WORKING_DIR/"
         rm -Rf $WORKING_DIR/
     else
@@ -416,14 +417,14 @@ function copy_to_s3 {
 # Will restore the XVA in the specified SR and delete this newly created VM right away
 function temporarily_restores_xva {
     # no verification of the parameters as they're already done in import_vm function
-    if import_vm $@
+    if import_vm "$@"
     then
-        # var imported_vm_id is exported from import_vm function
-        if delete_vm $imported_vm_id
+        # var IMPORTED_VM_ID is exported from import_vm function
+        if delete_vm $IMPORTED_VM_ID
         then
-            say "VM restoration from XVA file [$2] is successful and the temporary VM [$imported_vm_id] has been deleted"
+            say "VM restoration from XVA file [$2] is successful and the temporary VM [$IMPORTED_VM_ID] has been deleted"
         else
-            say "VM could be restored from [$2], but cannot be removed, you must delete it manually: \"[$imported_vm_id]\""
+            say "VM could be restored from [$2], but cannot be removed, you must delete it manually: \"[$IMPORTED_VM_ID]\""
             die "If the problem isn't related to the XVA file, you can reload this script with [push] command"
         fi
     else
@@ -436,7 +437,7 @@ function temporarily_restores_xva {
 # Will print the name_label of the given <VM-ID>
 # prints <VM-ID> in case of error
 function get_vm_name_from_id {
-    xo_cli_wrap --list-objects type=VM id=${1} | jq --exit-status -r '.[0].name_label' || \
+    xo-cli --list-objects type=VM id=${1} | jq --exit-status -r '.[0].name_label' || \
         echo "${1}"
 }
 
@@ -445,7 +446,7 @@ function get_vm_name_from_id {
 # Will print the VM-ID of the given <name_label>
 # exits with error message when nothing has been found
 function get_vm_id_from_name {
-    xo_cli_wrap --list-objects type=VM name_label=${1} | jq --exit-status -r '.[0].id' || \
+    xo-cli --list-objects type=VM name_label=${1} | jq --exit-status -r '.[0].id' || \
         die "No VM can be found under name=\"${1}\""
 }
 
