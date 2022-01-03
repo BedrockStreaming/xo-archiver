@@ -383,7 +383,7 @@ function import_vm {
     then
         # This new VM-ID is necessary to run temporarily_restores_xva function
         # but it also improves the output log
-        export IMPORTED_VM_ID=$(cat $2-imported.json | jq --exit-status -r '.result')
+        export IMPORTED_VM_ID=$(jq --exit-status -r '.result' '$2-imported.json' )
         if ! echo $IMPORTED_VM_ID | grep -q "[a-Z0-9]"
         then
             unset $IMPORTED_VM_ID
