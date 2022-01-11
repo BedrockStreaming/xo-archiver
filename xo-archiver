@@ -39,6 +39,16 @@ COMMANDS:
             ├── SR-ID.txt
             └── VM.json
 
+  pull
+        Pulls archived files (XVA+metadata) from S3.
+        To be used with --archived-vm-name
+        S3 bucket name should be define as an envvar, see below CONFIG FILE section.
+        Files under "s3://bucket_name/\$ARCHIVED-VM-NAME/" will be copied locally, like:
+            foo-bar-01
+            ├── 622870c0-0d21-286b-df2d-05ff2bab6a45.xva
+            ├── SR-ID.txt
+            └── VM.json
+
   delete
         Deletes the Virtual Machine and its associated disks in XOA
         To be used with --vm-id or --vm-name
@@ -70,6 +80,13 @@ SELECTORS:
         E.g: --vm-name foo-bar-01
         If used in conjunction with --vm-id, then will be ignored
         TODO: handle multiple results. Currently fails in such case.
+
+  --archived-vm-name <name_label>
+        Name used as prefix in the S3 bucket, to identify VM.
+        That name was the one printed in the GUI of XO.
+        E.g: --archived-vm-name foo-bar-01
+        This is different from --vm-name because the VM does not currently exist in XO and
+        therefore the two workflows are totally different, as is the name of this selector.
 
   --sr-id <id>
         The ID of XO's Storage Repository where to import the VM.
@@ -167,6 +184,9 @@ do
                                             ;;
         --vm-name )                         shift
                                             vm_name="$1"
+                                            ;;
+        --archived-vm-name )                shift
+                                            archived_vm_name="$1"
                                             ;;
         --sr-id )                           shift
                                             sr_id="$1"
@@ -450,6 +470,43 @@ function copy_to_s3 {
 }
 
 
+# Usage: copy_from_s3 <VM-NAME>
+# copies the <VM-NAME> corresponding files from the s3 bucket specified through envvar
+function copy_from_s3 {
+    if [[ -z $1 ]]
+    then
+        die "copy_from_s3 needs parameter: VM-NAME. E.g: foo-bar-01"
+    fi
+
+    # ensure bucket var is set
+    if [[ -z "$AWS_BUCKET_XO_ARCHIVES" ]]
+    then 
+        die "Bucket is undefined. look at the --help and search for AWS_BUCKET_XO_ARCHIVES"
+    fi
+
+    create_working_dir
+
+    local _remote_xva_path="s3://$AWS_BUCKET_XO_ARCHIVES/$1"
+    log "Copying archives from \"$_remote_xva_path\" into $WORKING_DIR/"
+
+    if aws s3 cp $_remote_xva_path/ $WORKING_DIR/ --recursive
+    then
+        if ls -A $WORKING_DIR/ | grep -q "[a-Z0-9]"
+        then
+            log "Successfully copied files from bucket \"$_remote_xva_path\" into $WORKING_DIR/"
+        else
+            log "Cleaning up $WORKING_DIR/"
+            rm -Rf $WORKING_DIR/
+            die "Nothing to copy from S3, ensure \"$_remote_xva_path\" exists and contains files"
+        fi
+    else
+        log "Cleaning up $WORKING_DIR/"
+        rm -Rf $WORKING_DIR/
+        die "Fail to copy from S3"
+    fi
+}
+
+
 # Usage: temporarily_restores_xva <SR-ID> <XVA-local-path>
 # Will restore the XVA in the specified SR and delete this newly created VM right away
 function temporarily_restores_xva {
@@ -507,6 +564,10 @@ then
         _return_value=$?
         if [[ $_return_value -gt 0 ]]; then exit $_return_value; fi
     # no vm_id or vm_name
+    elif [[ ! -z $archived_vm_name ]]
+    then
+        # VM doesn't exist, we retrieve archived files from S3 (no vm_id to find)
+        WORKING_DIR="$LOCAL_TMP_DIR/$archived_vm_name"
     elif [[ -z $sr_id ]] || [[ -z $xva_file ]]
     then
         # no selector provided
@@ -515,7 +576,7 @@ then
 fi
 
 
-WORKING_DIR="$LOCAL_TMP_DIR/$vm_id"
+WORKING_DIR="${WORKING_DIR:-$LOCAL_TMP_DIR/$vm_id}"
 
 log "Script command=\"$command\""
 
@@ -543,6 +604,9 @@ case "$command" in
         ;;
     temporarily-restores-xva)
         temporarily_restores_xva $sr_id $xva_file
+        ;;
+    pull)
+        copy_from_s3 $archived_vm_name
         ;;
     * )
         die "Unknown command \"$command\""
