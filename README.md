@@ -94,7 +94,7 @@ SELECTORS:
         TODO: handle multiple results. Currently fails in such case.
 
   --archived-vm-name <name_label>
-        Name used as prefix in the S3 bucket, to identify VM.
+        Name used as prefix in the S3 bucket, to identify a VM.
         That name was the one printed in the GUI of XO.
         E.g: --archived-vm-name foo-bar-01
         This is different from --vm-name because the VM does not currently exist in XO and
