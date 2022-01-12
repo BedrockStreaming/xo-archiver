@@ -68,6 +68,20 @@ COMMANDS:
         and deleting the VM thus created. VM will stay in Halted state all along.
         To be used with --sr-id and --xva-file
 
+  restore
+        Call those commands, in this order: pull, get-metadata-from-local-files, import and clean
+        To be used with --archived-vm-name
+
+  get-metadata-from-local-files
+        Checks that local files contain mandatory informations: SR-ID and a readable XVA-file.
+        To be used with --archived-vm-name or --vm-id or --vm-name
+
+  clean
+        Removes local files associated with the provided selector inside LOCAL_TMP_DIR
+        This script handles local files properly, but in case of an error,
+        it may be necessary to run this command.
+        To be used with --archived-vm-name or --vm-id or --vm-name
+
 
 SELECTORS:
   --vm-id <id>
@@ -311,6 +325,17 @@ function create_working_dir {
 }
 
 
+# Usage: clean_working_dir
+# Cleans the temporary directory
+function clean_working_dir {
+    if [[ -d "$WORKING_DIR" ]]
+    then
+        log "Cleaning $WORKING_DIR/"
+        rm -Rf $WORKING_DIR/
+    fi
+}
+
+
 # Usage: export_vm <VM-ID>
 # Will exports the specified VM in compressed zstd, in a .xva file
 function export_vm {
@@ -329,7 +354,7 @@ function export_vm {
     then
         log "Export completed at \"$_vm_export_path\""
         # this exported envvar is used in Main to call temporarily_restores_xva function
-        export EXPORTED_VM_XVA_FILE=$_vm_export_path
+        export VM_XVA_FILE=$_vm_export_path
     else
         rm -f $_vm_export_path
         die "Export failed for VM \"${1}\""
@@ -372,15 +397,15 @@ function export_metadata {
     # get first SR from VDIs and check if result looks good
     grep --no-filename -E "[a-Z0-9]" $WORKING_DIR/VDI-*-SR-ID.txt | head -1 > $WORKING_DIR/SR-ID.txt
     # this exported envvar is used in Main to call temporarily_restores_xva function
-    export EXPORTED_VM_SR_ID="$(cat $WORKING_DIR/SR-ID.txt)"
+    export VM_SR_ID="$(cat $WORKING_DIR/SR-ID.txt)"
 
-    if echo $EXPORTED_VM_SR_ID | grep -q "[a-Z0-9]"
+    if echo $VM_SR_ID | grep -q "[a-Z0-9]"
     then
         rm -f $WORKING_DIR/VDI-*-SR-ID.txt
-        log "Storage Repository ID \"$EXPORTED_VM_SR_ID\" exported to $WORKING_DIR/SR-ID.txt"
+        log "Storage Repository ID \"$VM_SR_ID\" exported to $WORKING_DIR/SR-ID.txt"
     else
         rm -f $WORKING_DIR/{SR-ID.txt,VDI-*-SR-ID.txt}
-        unset $EXPORTED_VM_SR_ID
+        unset $VM_SR_ID
         die "Unable to export Storage Repository ID for VM \"$1\""
     fi
 }
@@ -462,8 +487,7 @@ function copy_to_s3 {
     if aws s3 cp $WORKING_DIR/ $_remote_xva_path/ --recursive
     then
         log "Successfully copied exports of \"$_vm_name\" on bucket \"$AWS_BUCKET_XO_ARCHIVES\""
-        log "Cleaning up $WORKING_DIR/"
-        rm -Rf $WORKING_DIR/
+        clean_working_dir
     else
         die "Fail to push to s3"
     fi
@@ -489,20 +513,59 @@ function copy_from_s3 {
     local _remote_xva_path="s3://$AWS_BUCKET_XO_ARCHIVES/$1"
     log "Copying archives from \"$_remote_xva_path\" into $WORKING_DIR/"
 
-    if aws s3 cp $_remote_xva_path/ $WORKING_DIR/ --recursive
+    if aws s3 cp $_remote_xva_path/ $WORKING_DIR/ --recursive --force-glacier-transfer
     then
         if ls -A $WORKING_DIR/ | grep -q "[a-Z0-9]"
         then
             log "Successfully copied files from bucket \"$_remote_xva_path\" into $WORKING_DIR/"
         else
-            log "Cleaning up $WORKING_DIR/"
-            rm -Rf $WORKING_DIR/
+            clean_working_dir
             die "Nothing to copy from S3, ensure \"$_remote_xva_path\" exists and contains files"
         fi
     else
-        log "Cleaning up $WORKING_DIR/"
-        rm -Rf $WORKING_DIR/
+        clean_working_dir
         die "Fail to copy from S3"
+    fi
+}
+
+
+# Usage: get_metadata_from_local_files
+# Checks that local files contain mandatory informations
+# and exports vars for futur import: SR-ID and a readable XVA-file
+# This function doesn't need argument as $WORKING_DIR is used
+# and this var depends of the selector used to load this script
+function get_metadata_from_local_files {
+    if ! ls -A $WORKING_DIR/ | grep -q "[a-Z0-9]"
+    then
+        die "No file found in local directory \"$WORKING_DIR/\""
+    fi
+
+    # this exported envvar is used in Main to call import_vm when restoring
+    export VM_SR_ID="$(cat $WORKING_DIR/SR-ID.txt 2>/dev/null)"
+
+    if echo $VM_SR_ID | grep -q "[a-Z0-9]"
+    then
+        log "Found Storage Repository ID \"$VM_SR_ID\" from file $WORKING_DIR/SR-ID.txt"
+    else
+        unset $VM_SR_ID
+        die "Unable to export Storage Repository ID from file $WORKING_DIR/SR-ID.txt"
+    fi
+
+    # Try to get xva file from VM.json
+    local _archived_vm_id=$(cat $WORKING_DIR/VM.json 2>/dev/null | jq -r --exit-status '.[0].id')
+    if echo $_archived_vm_id | grep -q "[a-Z0-9]"
+    then
+        local _archived_vm_xva_file="$WORKING_DIR/${_archived_vm_id}.xva"
+        if [[ -r "$_archived_vm_xva_file" ]]
+        then
+            # this exported envvar is used in Main to call import_vm when restoring
+            export VM_XVA_FILE="$_archived_vm_xva_file"
+            log "Found XVA file \"$VM_XVA_FILE\""
+        else
+            die "Unable to find XVA file from metadata"
+        fi
+    else
+        die "Unable to get VM-ID from $WORKING_DIR/VM.json"
     fi
 }
 
@@ -592,7 +655,7 @@ case "$command" in
     archive)
         export_vm $vm_id
         export_metadata $vm_id
-        temporarily_restores_xva $EXPORTED_VM_SR_ID $EXPORTED_VM_XVA_FILE
+        temporarily_restores_xva $VM_SR_ID $VM_XVA_FILE
         copy_to_s3 $vm_id
         delete_vm $vm_id
         ;;
@@ -607,6 +670,19 @@ case "$command" in
         ;;
     pull)
         copy_from_s3 $archived_vm_name
+        get_metadata_from_local_files
+        ;;
+    restore)
+        copy_from_s3 $archived_vm_name
+        get_metadata_from_local_files
+        import_vm $VM_SR_ID $VM_XVA_FILE
+        clean_working_dir
+        ;;
+    get-metadata-from-local-files)
+        get_metadata_from_local_files
+        ;;
+    clean)
+        clean_working_dir
         ;;
     * )
         die "Unknown command \"$command\""
