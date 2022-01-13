@@ -37,6 +37,16 @@ COMMANDS:
             ├── SR-ID.txt
             └── VM.json
 
+  pull
+        Pulls archived files (XVA+metadata) from S3.
+        To be used with --archived-vm-name
+        S3 bucket name should be define as an envvar, see below CONFIG FILE section.
+        Files under "s3://bucket_name/$ARCHIVED-VM-NAME/" will be copied locally, like:
+            foo-bar-01
+            ├── 622870c0-0d21-286b-df2d-05ff2bab6a45.xva
+            ├── SR-ID.txt
+            └── VM.json
+
   delete
         Deletes the Virtual Machine and its associated disks in XOA
         To be used with --vm-id or --vm-name
@@ -56,6 +66,20 @@ COMMANDS:
         and deleting the VM thus created. VM will stay in Halted state all along.
         To be used with --sr-id and --xva-file
 
+  restore
+        Call those commands, in this order: pull, get-metadata-from-local-files, import and clean
+        To be used with --archived-vm-name
+
+  get-metadata-from-local-files
+        Checks that local files contain mandatory informations: SR-ID and a readable XVA-file.
+        To be used with --archived-vm-name or --vm-id or --vm-name
+
+  clean
+        Removes local files associated with the provided selector inside LOCAL_TMP_DIR
+        This script handles local files properly, but in case of an error,
+        it may be necessary to run this command.
+        To be used with --archived-vm-name or --vm-id or --vm-name
+
 
 SELECTORS:
   --vm-id <id>
@@ -68,6 +92,13 @@ SELECTORS:
         E.g: --vm-name foo-bar-01
         If used in conjunction with --vm-id, then will be ignored
         TODO: handle multiple results. Currently fails in such case.
+
+  --archived-vm-name <name_label>
+        Name used as prefix in the S3 bucket, to identify a VM.
+        That name was the one printed in the GUI of XO.
+        E.g: --archived-vm-name foo-bar-01
+        This is different from --vm-name because the VM does not currently exist in XO and
+        therefore the two workflows are totally different, as is the name of this selector.
 
   --sr-id <id>
         The ID of XO's Storage Repository where to import the VM.
