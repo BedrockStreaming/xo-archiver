@@ -71,11 +71,11 @@ COMMANDS:
         To be used with --archived-vm-name
 
   get-metadata-from-local-files
-        Checks that local files contain mandatory informations: SR-ID and a readable XVA-file.
+        Checks that local files contain mandatory information: SR-ID and a readable XVA-file.
         To be used with --archived-vm-name or --vm-id or --vm-name
 
   clean
-        Removes local files associated with the provided selector inside LOCAL_TMP_DIR
+        Removes local files associated with the provided selector inside LOCAL_TMP_DIR.
         This script handles local files properly, but in case of an error,
         it may be necessary to run this command.
         To be used with --archived-vm-name or --vm-id or --vm-name
@@ -84,29 +84,29 @@ COMMANDS:
 SELECTORS:
   --vm-id <id>
         XO's VM ID or snapshot ID.
-        E.g: --vm-id 622870c0-0d21-286b-df2d-05ff2bab6a45
+        E.g.: --vm-id 622870c0-0d21-286b-df2d-05ff2bab6a45
         If used at the same time as --vm-name, takes precedence
 
   --vm-name <name_label>
         XO's VM name as printed in the GUI, which refers to name_label objects
-        E.g: --vm-name foo-bar-01
+        E.g.: --vm-name foo-bar-01
         If used in conjunction with --vm-id, then will be ignored
         TODO: handle multiple results. Currently fails in such case.
 
   --archived-vm-name <name_label>
         Name used as prefix in the S3 bucket, to identify a VM.
         That name was the one printed in the GUI of XO.
-        E.g: --archived-vm-name foo-bar-01
+        E.g.: --archived-vm-name foo-bar-01
         This is different from --vm-name because the VM does not currently exist in XO and
         therefore the two workflows are totally different, as is the name of this selector.
 
   --sr-id <id>
         The ID of XO's Storage Repository where to import the VM.
-        E.g: --sr-id 2505a86a-0d21-286b-df2d-05ff2bab6a45
+        E.g.: --sr-id 2505a86a-0d21-286b-df2d-05ff2bab6a45
 
   --xva-file <full-path>
         Fullpath of the VM file, in xva compressed (zstd) format.
-        E.g: --xva-file /mnt/xo-archives/622870c0-0d21-286b-df2d-05ff2bab6a45.xva
+        E.g.: --xva-file /mnt/xo-archives/622870c0-0d21-286b-df2d-05ff2bab6a45.xva
 
 
 OPTIONS:
@@ -116,7 +116,7 @@ OPTIONS:
 
 CONFIG FILE:
   All envvar can be set through file "~/.config/.xo-archiver/config" prefixed by 'export'
-  E.g:
+  E.g.:
         $ cat ~/.config/.xo-archiver/config
         export XO_HOST=https://xoa.foo.bar
         export XO_USER=admin@admin.net
@@ -126,11 +126,11 @@ CONFIG FILE:
 
   XO_HOST
         URL of your XOA
-        E.g: https://xoa.foo.bar
+        E.g.: https://xoa.foo.bar
 
   XO_USER
         user that can perform exports, import and start VM.
-        E.g: admin@admin.net
+        E.g.: admin@admin.net
 
   XO_CLI_CONFIG
         xo-cli config file path
@@ -147,7 +147,7 @@ CONFIG FILE:
 
   AWS_BUCKET_XO_ARCHIVES
         AWS's S3 bucket name where files are archived
-        E.g: my-xen-archives
+        E.g.: my-xen-archives
         AWS cli also uses other envvars like AWS_ACCESS_KEY_ID, etc.
         All those envvars can be defined inside config file,
         but are not meant to be handled by this script.

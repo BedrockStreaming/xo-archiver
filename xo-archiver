@@ -73,11 +73,11 @@ COMMANDS:
         To be used with --archived-vm-name
 
   get-metadata-from-local-files
-        Checks that local files contain mandatory informations: SR-ID and a readable XVA-file.
+        Checks that local files contain mandatory information: SR-ID and a readable XVA-file.
         To be used with --archived-vm-name or --vm-id or --vm-name
 
   clean
-        Removes local files associated with the provided selector inside LOCAL_TMP_DIR
+        Removes local files associated with the provided selector inside LOCAL_TMP_DIR.
         This script handles local files properly, but in case of an error,
         it may be necessary to run this command.
         To be used with --archived-vm-name or --vm-id or --vm-name
@@ -86,29 +86,29 @@ COMMANDS:
 SELECTORS:
   --vm-id <id>
         XO's VM ID or snapshot ID.
-        E.g: --vm-id 622870c0-0d21-286b-df2d-05ff2bab6a45
+        E.g.: --vm-id 622870c0-0d21-286b-df2d-05ff2bab6a45
         If used at the same time as --vm-name, takes precedence
 
   --vm-name <name_label>
         XO's VM name as printed in the GUI, which refers to name_label objects
-        E.g: --vm-name foo-bar-01
+        E.g.: --vm-name foo-bar-01
         If used in conjunction with --vm-id, then will be ignored
         TODO: handle multiple results. Currently fails in such case.
 
   --archived-vm-name <name_label>
         Name used as prefix in the S3 bucket, to identify a VM.
         That name was the one printed in the GUI of XO.
-        E.g: --archived-vm-name foo-bar-01
+        E.g.: --archived-vm-name foo-bar-01
         This is different from --vm-name because the VM does not currently exist in XO and
         therefore the two workflows are totally different, as is the name of this selector.
 
   --sr-id <id>
         The ID of XO's Storage Repository where to import the VM.
-        E.g: --sr-id 2505a86a-0d21-286b-df2d-05ff2bab6a45
+        E.g.: --sr-id 2505a86a-0d21-286b-df2d-05ff2bab6a45
 
   --xva-file <full-path>
         Fullpath of the VM file, in xva compressed (zstd) format.
-        E.g: --xva-file /mnt/xo-archives/622870c0-0d21-286b-df2d-05ff2bab6a45.xva
+        E.g.: --xva-file /mnt/xo-archives/622870c0-0d21-286b-df2d-05ff2bab6a45.xva
 
 
 OPTIONS:
@@ -118,7 +118,7 @@ OPTIONS:
 
 CONFIG FILE:
   All envvar can be set through file "$archiver_config" prefixed by 'export'
-  E.g:
+  E.g.:
         $ cat $archiver_config
         export XO_HOST=https://xoa.foo.bar
         export XO_USER=admin@admin.net
@@ -128,11 +128,11 @@ CONFIG FILE:
 
   XO_HOST
         URL of your XOA
-        E.g: https://xoa.foo.bar
+        E.g.: https://xoa.foo.bar
 
   XO_USER
         user that can perform exports, import and start VM.
-        E.g: admin@admin.net
+        E.g.: admin@admin.net
 
   XO_CLI_CONFIG
         xo-cli config file path
@@ -149,7 +149,7 @@ CONFIG FILE:
 
   AWS_BUCKET_XO_ARCHIVES
         AWS's S3 bucket name where files are archived
-        E.g: my-xen-archives
+        E.g.: my-xen-archives
         AWS cli also uses other envvars like AWS_ACCESS_KEY_ID, etc.
         All those envvars can be defined inside config file,
         but are not meant to be handled by this script.
@@ -341,7 +341,7 @@ function clean_working_dir {
 function export_vm {
     if [[ -z $1 ]]
     then
-        die "export_vm needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+        die "export_vm needs parameter: VM-ID. E.g.: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
     create_working_dir
@@ -367,7 +367,7 @@ function export_vm {
 function export_metadata {
     if [[ -z $1 ]]
     then
-        die "export_metadata needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+        die "export_metadata needs parameter: VM-ID. E.g.: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
     create_working_dir
@@ -448,7 +448,7 @@ function import_vm {
 function delete_vm {
     if [[ -z $1 ]]
     then
-        die "delete_vm needs parameter: VM-ID. E.g: 622870c0-0d21-286b-df2d-05ff2bab6a45"
+        die "delete_vm needs parameter: VM-ID. E.g.: 622870c0-0d21-286b-df2d-05ff2bab6a45"
     fi
 
     log "Deleting VM \"$1\""
@@ -471,7 +471,7 @@ function copy_to_s3 {
     # ensure bucket var is set
     if [[ -z "$AWS_BUCKET_XO_ARCHIVES" ]]
     then 
-        die "Bucket is undefined. look at the --help and search for AWS_BUCKET_XO_ARCHIVES"
+        die "Bucket is undefined. Look at the --help and search for AWS_BUCKET_XO_ARCHIVES"
     fi
 
     # ensure there's something to push (directory exists and not empty)
@@ -499,13 +499,13 @@ function copy_to_s3 {
 function copy_from_s3 {
     if [[ -z $1 ]]
     then
-        die "copy_from_s3 needs parameter: VM-NAME. E.g: foo-bar-01"
+        die "copy_from_s3 needs parameter: VM-NAME. E.g.: foo-bar-01"
     fi
 
     # ensure bucket var is set
     if [[ -z "$AWS_BUCKET_XO_ARCHIVES" ]]
     then 
-        die "Bucket is undefined. look at the --help and search for AWS_BUCKET_XO_ARCHIVES"
+        die "Bucket is undefined. Look at the --help and search for AWS_BUCKET_XO_ARCHIVES"
     fi
 
     create_working_dir
@@ -530,7 +530,7 @@ function copy_from_s3 {
 
 
 # Usage: get_metadata_from_local_files
-# Checks that local files contain mandatory informations
+# Checks that local files contain mandatory information
 # and exports vars for futur import: SR-ID and a readable XVA-file
 # This function doesn't need argument as $WORKING_DIR is used
 # and this var depends of the selector used to load this script
@@ -612,7 +612,7 @@ function get_vm_id_from_name {
 ######
 # Main
 
-# calling renew here, because some functions need to redirect stdout (E.g, into a .json)
+# calling renew here, because some functions need to redirect stdout (E.g., into a .json)
 # and that messes up with xo-cli asking for credentials (ask-for-pass isn't displayed, script gets stucked)
 renew_xo_cli_auth
 
